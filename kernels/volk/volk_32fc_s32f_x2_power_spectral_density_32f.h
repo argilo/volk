@@ -139,7 +139,8 @@ volk_32fc_s32f_x2_power_spectral_density_32f_a_avx(float* logPowerOutput, const 
     const float real = *inputPtr++ * iNormalizationFactor;
     const float imag = *inputPtr++ * iNormalizationFactor;
 
-    *destPtr = 10.0*log10f((((real * real) + (imag * imag)) + 1e-20) * iRBW);
+    *destPtr = volk_log2to10factor *
+               log2f_non_ieee((((real * real) + (imag * imag))) * iRBW);
     destPtr++;
   }
 
@@ -226,7 +227,8 @@ volk_32fc_s32f_x2_power_spectral_density_32f_a_sse3(float* logPowerOutput, const
     const float real = *inputPtr++ * iNormalizationFactor;
     const float imag = *inputPtr++ * iNormalizationFactor;
 
-    *destPtr = 10.0*log10f((((real * real) + (imag * imag)) + 1e-20) * iRBW);
+    *destPtr = volk_log2to10factor *
+               log2f_non_ieee((((real * real) + (imag * imag))) * iRBW);
     destPtr++;
   }
 
@@ -242,26 +244,29 @@ volk_32fc_s32f_x2_power_spectral_density_32f_generic(float* logPowerOutput, cons
                                                      unsigned int num_points)
 {
   // Calculate the Power of the complex point
-  const float* inputPtr = (float*)complexFFTInput;
-  float* realFFTDataPointsPtr = logPowerOutput;
-  unsigned int point;
   const float invRBW = 1.0 / rbw;
-  const float iNormalizationFactor = 1.0 / normalizationFactor;
+  const float normFactSq = 1.0 / (normalizationFactor * normalizationFactor);
 
-  for(point = 0; point < num_points; point++){
-    // Calculate dBm
-    // 50 ohm load assumption
-    // 10 * log10 (v^2 / (2 * 50.0 * .001)) = 10 * log10( v^2 * 10)
-    // 75 ohm load assumption
-    // 10 * log10 (v^2 / (2 * 75.0 * .001)) = 10 * log10( v^2 * 15)
+  // Calculate dBm
+  // 50 ohm load assumption
+  // 10 * log10 (v^2 / (2 * 50.0 * .001)) = 10 * log10( v^2 * 10)
+  // 75 ohm load assumption
+  // 10 * log10 (v^2 / (2 * 75.0 * .001)) = 10 * log10( v^2 * 15)
 
-    const float real = *inputPtr++ * iNormalizationFactor;
-    const float imag = *inputPtr++ * iNormalizationFactor;
+  // Calc mag^2
+  volk_32fc_magnitude_squared_32f(logPowerOutput, complexFFTInput, num_points);
 
-    *realFFTDataPointsPtr = 10.0*log10f((((real * real) + (imag * imag)) + 1e-20) * invRBW);
+  // Finish (((real * real) + (imag * imag)))*invRBW calculation:
+  volk_32f_s32f_multiply_32f(logPowerOutput, logPowerOutput, normFactSq, num_points);
 
-    realFFTDataPointsPtr++;
-  }
+  if (rbw != 1.0)
+	  volk_32f_s32f_multiply_32f(logPowerOutput,logPowerOutput,invRBW,num_points);
+
+  // The following calculates 10*log10(x) = 10*log2(x)/log2(10) = (10/log2(10))
+  // * log2(x)
+  volk_32f_log2_32f(logPowerOutput, logPowerOutput, num_points);
+  volk_32f_s32f_multiply_32f(logPowerOutput, logPowerOutput, volk_log2to10factor,
+                             num_points);
 }
 #endif /* LV_HAVE_GENERIC */
 

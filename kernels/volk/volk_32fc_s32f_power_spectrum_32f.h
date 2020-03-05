@@ -128,7 +128,8 @@ volk_32fc_s32f_power_spectrum_32f_a_sse3(float* logPowerOutput, const lv_32fc_t*
     const float real = *inputPtr++ * iNormalizationFactor;
     const float imag = *inputPtr++ * iNormalizationFactor;
 
-    *destPtr = 10.0*log10f(((real * real) + (imag * imag)) + 1e-20);
+    *destPtr = volk_log2to10factor *
+               log2f_non_ieee(((real * real) + (imag * imag)));
 
     destPtr++;
   }
@@ -175,7 +176,9 @@ volk_32fc_s32f_power_spectrum_32f_neon(float* logPowerOutput, const lv_32fc_t* c
     for(number = quarter_points * 4; number < num_points; number++) {
         const float real = lv_creal(*complexFFTInputPtr) * iNormalizationFactor;
         const float imag = lv_cimag(*complexFFTInputPtr) * iNormalizationFactor;
-        *logPowerOutputPtr = 10.0 * log10f(((real * real) + (imag * imag)) + 1e-20);
+
+        *logPowerOutputPtr = volk_log2to10factor *
+            log2f_non_ieee(((real * real) + (imag * imag)));
         complexFFTInputPtr++;
         logPowerOutputPtr++;
     }
@@ -190,23 +193,25 @@ volk_32fc_s32f_power_spectrum_32f_generic(float* logPowerOutput, const lv_32fc_t
                                           const float normalizationFactor, unsigned int num_points)
 {
   // Calculate the Power of the complex point
-  const float* inputPtr = (float*)complexFFTInput;
-  float* realFFTDataPointsPtr = logPowerOutput;
-  const float iNormalizationFactor = 1.0 / normalizationFactor;
-  unsigned int point;
-  for(point = 0; point < num_points; point++){
-    // Calculate dBm
-    // 50 ohm load assumption
-    // 10 * log10 (v^2 / (2 * 50.0 * .001)) = 10 * log10( v^2 * 10)
-    // 75 ohm load assumption
-    // 10 * log10 (v^2 / (2 * 75.0 * .001)) = 10 * log10( v^2 * 15)
+  const float normFactSq = 1.0 / (normalizationFactor * normalizationFactor);
 
-    const float real = *inputPtr++ * iNormalizationFactor;
-    const float imag = *inputPtr++ * iNormalizationFactor;
+  // Calculate dBm
+  // 50 ohm load assumption
+  // 10 * log10 (v^2 / (2 * 50.0 * .001)) = 10 * log10( v^2 * 10)
+  // 75 ohm load assumption
+  // 10 * log10 (v^2 / (2 * 75.0 * .001)) = 10 * log10( v^2 * 15)
 
-    *realFFTDataPointsPtr = 10.0*log10f(((real * real) + (imag * imag)) + 1e-20);
-    realFFTDataPointsPtr++;
-  }
+  // Calc mag^2
+  volk_32fc_magnitude_squared_32f(logPowerOutput, complexFFTInput, num_points);
+
+  // Finish ((real * real) + (imag * imag)) calculation:
+  volk_32f_s32f_multiply_32f(logPowerOutput, logPowerOutput, normFactSq, num_points);
+
+  // The following calculates 10*log10(x) = 10*log2(x)/log2(10) = (10/log2(10))
+  // * log2(x)
+  volk_32f_log2_32f(logPowerOutput, logPowerOutput, num_points);
+  volk_32f_s32f_multiply_32f(logPowerOutput, logPowerOutput, volk_log2to10factor,
+                             num_points);
 }
 #endif /* LV_HAVE_GENERIC */
 
